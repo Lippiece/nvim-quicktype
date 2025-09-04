@@ -42,7 +42,7 @@ You can specify the command used to run QuickType. By default, it's `quicktype`.
 require("nvim-quicktype").setup({
   global = {
     -- Quicktype global options
-    cmd = "quicktype", -- Path to the quicktype executable
+    quicktype_cmd = "quicktype", -- Path to the quicktype executable
     src_lang = "json", -- The language of the input
     no_combine_classes = false, -- Do not combine classes with shared properties into a single base class
     all_properties_optional = false, -- Make all properties optional
