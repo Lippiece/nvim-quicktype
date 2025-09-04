@@ -15,49 +15,6 @@ local function get_ft_config(config, ft)
   return ft_config
 end
 
-local function build_command(config, ft_config, json_str, top_level_type_name)
-  local quicktype_cmd = config.global.quicktype_cmd or "quicktype"
-  local cmd = "cat << EoF | " .. quicktype_cmd
-
-  -- Add global options
-  if config.global.output_file then
-    cmd = cmd .. " -o " .. config.global.output_file
-  end
-  cmd = cmd .. " --src-lang " .. config.global.src_lang
-  if config.global.no_combine_classes then
-    cmd = cmd .. " --no-combine-classes"
-  end
-  if config.global.all_properties_optional then
-    cmd = cmd .. " --all-properties-optional"
-  end
-  if config.global.alphabetize_properties then
-    cmd = cmd .. " --alphabetize-properties"
-  end
-  cmd = cmd .. " --telemetry " .. config.global.telemetry
-
-  -- Add language-specific options
-  cmd = cmd .. " -l " .. ft_config.lang
-  cmd = cmd .. " -t " .. top_level_type_name
-
-  -- Add additional options
-  for option, value in pairs(ft_config.additional_options) do
-    cmd = cmd .. " --" .. option
-    if type(value) ~= "boolean" then
-      cmd = cmd .. " " .. tostring(value)
-    end
-  end
-
-  if config.global.debug_dir then
-    cmd = cmd .. " 2>" .. config.global.debug_dir .. "/err.log"
-  else
-    cmd = cmd .. " 2>/dev/null"
-  end
-  -- Add the JSON input and error redirection
-  cmd = cmd .. " \n" .. json_str .. "\nEoF"
-
-  return cmd
-end
-
 local function write_debug_info(debug_dir, command)
   if debug_dir then
     local debug_file = debug_dir .. "/quicktype_debug_" .. os.time() .. ".log"
@@ -98,6 +55,7 @@ local function get_json_str_from_reg(clipboard_source_register)
   return vim.fn.getreg("0")
 end
 
+--- @param config Config
 M.generate_type = function(config)
   -- Get the JSON string from the register
   local json_str = get_json_str_from_reg(config.global.clipboard_source_register)
@@ -106,31 +64,70 @@ M.generate_type = function(config)
     vim.notify("The clipboard content is not valid JSON.", vim.log.levels.ERROR)
     return
   end
-  -- Get the current filetype
-  local ft = vim.bo.ft
 
   -- Get the configuration for the current filetype
+  local ft = vim.bo.ft
   local ft_config = get_ft_config(config, ft)
+
   -- If ft_config is nil, it means the file type is not supported
   if not ft_config then
     return
   end
+
   -- Prompt the user for the top-level type name.
   local top_level_type_name = vim.fn.input("Enter the top-level type name: ")
 
   -- Build the command
-  local command = build_command(config, ft_config, json_str, top_level_type_name)
-  -- Write debug info if debug_dir is set
-  write_debug_info(config.global.debug_dir, command)
-  -- Execute the command
-  local result = vim.fn.systemlist(command)
-  -- Check if the command was successful
-  if vim.v.shell_error ~= 0 then
-    vim.api.nvim_err_writeln("Error generating types. Exit code: " .. vim.v.shell_error)
-  else
-    -- Insert the result into the current buffer
-    vim.api.nvim_buf_set_lines(0, vim.fn.line("."), vim.fn.line("."), false, result)
+  local argv = {}
+
+  table.insert(argv, config.global.quicktype_cmd)
+  table.insert(argv, "--src-lang")
+  table.insert(argv, config.global.src_lang)
+
+  if config.global.no_combine_classes then
+    table.insert(argv, "--no-combine-classes")
   end
+
+  if config.global.all_properties_optional then
+    table.insert(argv, "--all-properties-optional")
+  end
+
+  if config.global.alphabetize_properties then
+    table.insert(argv, "--alphabetize-properties")
+  end
+
+  table.insert(argv, "--telemetry")
+  table.insert(argv, config.global.telemetry)
+  table.insert(argv, "-l")
+  table.insert(argv, ft_config.lang)
+  table.insert(argv, "-t")
+  table.insert(argv, top_level_type_name)
+
+  for option, value in pairs(ft_config.additional_options) do
+    table.insert(argv, "--" .. option)
+    if type(value) ~= "boolean" then
+      table.insert(argv, tostring(value))
+    end
+  end
+
+  vim.system(argv, { stdin = json_str }, function(system_completed)
+    if system_completed.code ~= 0 then
+      vim.schedule(function()
+        vim.api.nvim_echo({ { "Error generating types. Exit code: " .. vim.v.shell_error } }, true, { err = true })
+      end)
+
+      if config.global.debug_dir then
+        write_debug_info(config.global.debug_dir, table.concat(argv, " "))
+      end
+
+      return
+    end
+
+    local lines = vim.split(system_completed.stdout, "\n", { plain = true })
+    vim.schedule(function()
+      vim.api.nvim_buf_set_lines(0, vim.fn.line("."), vim.fn.line("."), false, lines)
+    end)
+  end)
 end
 
 return M
