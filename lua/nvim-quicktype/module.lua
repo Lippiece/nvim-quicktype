@@ -1,7 +1,10 @@
 local M = {}
 
+--- @param config Config
 local function get_ft_config(config, ft)
-  if ft == "typescriptreact" then
+  local ts_langs = { "typescript", "typescriptreact", "vue", "svelte", "astro" }
+
+  if vim.tbl_contains(ts_langs, ft) then
     ft = "typescript"
   end
 
